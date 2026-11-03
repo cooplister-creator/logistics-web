@@ -45,7 +45,7 @@ main{max-width:900px;margin:0 auto;padding:16px}
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script>
-const WEB_VERSION = "03.11.2026 · сборка 1";
+const WEB_VERSION = "03.11.2026 · сборка 2";
 document.getElementById("ver").textContent = "Версия " + WEB_VERSION;
 
 firebase.initializeApp({
@@ -58,6 +58,7 @@ firebase.initializeApp({
 });
 const auth = firebase.auth();
 const db = firebase.firestore();
+db.settings({ experimentalAutoDetectLongPolling: true, merge: true });
 auth.languageCode = "ru";
 
 const app = document.getElementById("app");
@@ -222,6 +223,8 @@ async function route(user) {
     }
   } catch (e) {
     show(h("div", { class: "card" }, h("h1", {}, "Не удалось войти"), h("div", { class: "err" }, errText(e)),
+      h("p", { class: "sub" }, "Если ошибка «unavailable»: проверьте интернет, отключите VPN и блокировщики рекламы, затем нажмите «Повторить»."),
+      h("button", { class: "full", onclick: () => route(user) }, "Повторить"),
       h("button", { class: "full ghost", onclick: () => auth.signOut() }, "Выйти")));
     return;
   }
