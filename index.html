@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Логистика</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#eef3f8;color:#16263a}
+#app{min-height:100vh}
+.card{max-width:420px;margin:8vh auto;background:#fff;border-radius:14px;padding:24px;box-shadow:0 4px 18px rgba(20,50,90,.12)}
+h1{margin:0 0 4px;font-size:22px}
+.sub{color:#5b6b7f;margin:0 0 16px;font-size:14px}
+label{display:block;font-size:13px;color:#5b6b7f;margin:12px 0 4px}
+input{width:100%;padding:11px 12px;border:1px solid #c5d0dc;border-radius:9px;font-size:16px}
+button{padding:11px 16px;border:0;border-radius:9px;background:#1565c0;color:#fff;font-size:16px;cursor:pointer}
+button.full{width:100%;margin-top:16px}
+button.ghost{background:#e3ebf4;color:#1c3d63}
+button.sm{padding:6px 10px;font-size:14px}
+button.red{background:#c62828}
+.err{color:#c62828;font-size:14px;margin-top:10px;min-height:18px}
+.ok{color:#2e7d32}
+.link{background:none;color:#1565c0;padding:0;font-size:14px;margin-top:12px}
+header{display:flex;align-items:center;gap:10px;padding:12px 16px;background:#0d2f55;color:#fff}
+header b{flex:1}
+nav{display:flex;gap:6px;padding:10px 16px;background:#fff;border-bottom:1px solid #d5dee8;overflow-x:auto}
+nav button{background:#e3ebf4;color:#1c3d63;white-space:nowrap}
+nav button.on{background:#1565c0;color:#fff}
+main{max-width:900px;margin:0 auto;padding:16px}
+.row{display:flex;align-items:center;gap:10px;background:#fff;border-radius:10px;padding:10px 12px;margin-bottom:8px}
+.row .grow{flex:1;min-width:0}
+.row .n{font-weight:600}
+.row .m{font-size:13px;color:#5b6b7f;overflow:hidden;text-overflow:ellipsis}
+.badge{font-size:12px;border-radius:6px;padding:2px 7px;background:#ffe9b0;color:#7a5200}
+.badge.g{background:#d6f0d9;color:#1e6b2a}
+.empty{color:#5b6b7f;text-align:center;padding:30px 0}
+.ver{text-align:center;color:#8a99ab;font-size:12px;margin:14px 0}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div class="ver" id="ver"></div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+const WEB_VERSION = "03.11.2026 · сборка 1";
+document.getElementById("ver").textContent = "Версия " + WEB_VERSION;
+
+firebase.initializeApp({
+  apiKey: "AIzaSyAP1WPc-bMcScEaUNwFGxeqgNw_s5udTIo",
+  authDomain: "leyline-logistics.firebaseapp.com",
+  projectId: "leyline-logistics",
+  storageBucket: "leyline-logistics.firebasestorage.app",
+  messagingSenderId: "651564978803",
+  appId: "1:651564978803:web:07dd092b68a5eac593d006"
+});
+const auth = firebase.auth();
+const db = firebase.firestore();
+auth.languageCode = "ru";
+
+const app = document.getElementById("app");
+function h(tag, props, ...kids) {
+  const e = document.createElement(tag);
+  for (const k in (props || {})) {
+    const v = props[k];
+    if (k === "class") e.className = v;
+    else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
+    else if (v === true) e.setAttribute(k, "");
+    else if (v !== false && v != null) e.setAttribute(k, v);
+  }
+  for (const c of kids.flat()) if (c != null && c !== false) e.append(c.nodeType ? c : document.createTextNode(c));
+  return e;
+}
+function show(...nodes) { app.innerHTML = ""; app.append(...nodes); }
+function errText(e) {
+  const c = e && e.code || "";
+  const m = {
+    "auth/invalid-email": "Неверный адрес почты",
+    "auth/email-already-in-use": "Эта почта уже зарегистрирована",
+    "auth/weak-password": "Пароль слишком простой (минимум 6 символов)",
+    "auth/wrong-password": "Неверная почта или пароль",
+    "auth/invalid-credential": "Неверная почта или пароль",
+    "auth/user-not-found": "Неверная почта или пароль",
+    "auth/too-many-requests": "Слишком много попыток, подождите немного",
+    "auth/network-request-failed": "Нет связи с сервером"
+  };
+  return m[c] || ("Ошибка: " + (c || (e && e.message) || e));
+}
+
+let unsubProfile = null;
+let unsubUsers = null;
+
+/* ---------- экраны входа ---------- */
+function loginScreen(mode) {
+  const reg = mode === "reg";
+  const name = h("input", { type: "text", autocomplete: "name", placeholder: "Фамилия Имя" });
+  const email = h("input", { type: "email", autocomplete: "email", placeholder: "name@mail.ru" });
+  const pass = h("input", { type: "password", autocomplete: reg ? "new-password" : "current-password", placeholder: "Пароль" });
+  const err = h("div", { class: "err" });
+  const go = h("button", { class: "full" }, reg ? "Зарегистрироваться" : "Войти");
+  go.onclick = async () => {
+    err.textContent = "";
+    const em = email.value.trim(), pw = pass.value;
+    if (!em || !pw) { err.textContent = "Заполните почту и пароль"; return; }
+    if (reg && name.value.trim().length < 2) { err.textContent = "Укажите фамилию и имя"; return; }
+    go.disabled = true;
+    try {
+      if (reg) {
+        localStorage.setItem("pendingName", name.value.trim());
+        const r = await auth.createUserWithEmailAndPassword(em, pw);
+        try { await r.user.sendEmailVerification(); } catch (e) {}
+      } else {
+        await auth.signInWithEmailAndPassword(em, pw);
+      }
+    } catch (e) { err.textContent = errText(e); go.disabled = false; }
+  };
+  const forgot = h("button", { class: "link", onclick: async () => {
+    const em = email.value.trim();
+    if (!em) { err.textContent = "Введите почту, затем нажмите «Забыли пароль»"; return; }
+    try { await auth.sendPasswordResetEmail(em); err.className = "err ok"; err.textContent = "Письмо для сброса пароля отправлено"; }
+    catch (e) { err.className = "err"; err.textContent = errText(e); }
+  } }, "Забыли пароль?");
+  const sw = h("button", { class: "link", onclick: () => loginScreen(reg ? "login" : "reg") },
+    reg ? "Уже есть аккаунт? Войти" : "Нет аккаунта? Зарегистрироваться");
+  show(h("div", { class: "card" },
+    h("h1", {}, "Логистика"),
+    h("p", { class: "sub" }, reg ? "Регистрация. Доступ откроется после одобрения администратором." : "Вход в личный кабинет"),
+    reg ? [h("label", {}, "Фамилия и имя"), name] : null,
+    h("label", {}, "Почта"), email,
+    h("label", {}, "Пароль"), pass,
+    err, go,
+    reg ? null : forgot,
+    h("div", {}, sw)));
+}
+
+function verifyScreen(user) {
+  const err = h("div", { class: "err" });
+  show(h("div", { class: "card" },
+    h("h1", {}, "Подтвердите почту"),
+    h("p", { class: "sub" }, "Мы отправили письмо на " + user.email + ". Перейдите по ссылке в письме (проверьте папку «Спам»), затем нажмите кнопку ниже."),
+    err,
+    h("button", { class: "full", onclick: async () => {
+      err.className = "err"; err.textContent = "";
+      try {
+        await user.reload();
+        await user.getIdToken(true);
+        const u = auth.currentUser;
+        if (u && u.emailVerified) route(u); else err.textContent = "Почта ещё не подтверждена";
+      } catch (e) { err.textContent = errText(e); }
+    } }, "Я подтвердил"),
+    h("button", { class: "full ghost", onclick: async () => {
+      try { await user.sendEmailVerification(); err.className = "err ok"; err.textContent = "Письмо отправлено повторно"; }
+      catch (e) { err.className = "err"; err.textContent = errText(e); }
+    } }, "Отправить письмо ещё раз"),
+    h("button", { class: "link", onclick: () => auth.signOut() }, "Выйти")));
+}
+
+function pendingScreen(user) {
+  show(h("div", { class: "card" },
+    h("h1", {}, "Ожидайте одобрения"),
+    h("p", { class: "sub" }, "Аккаунт " + user.email + " создан. Как только администратор откроет доступ, страница обновится сама."),
+    h("button", { class: "link", onclick: () => auth.signOut() }, "Выйти")));
+}
+
+/* ---------- основной экран ---------- */
+function mainScreen(user, prof) {
+  const tabs = [["req", "Заявки"], ["trk", "Слежение"]];
+  if (prof.admin) tabs.push(["usr", "Пользователи"]);
+  let cur = "req";
+  const body = h("main", {});
+  const nav = h("nav", {});
+  const draw = () => {
+    nav.innerHTML = "";
+    tabs.forEach(t => nav.append(h("button", { class: cur === t[0] ? "on" : "", onclick: () => { cur = t[0]; draw(); } }, t[1])));
+    if (unsubUsers) { unsubUsers(); unsubUsers = null; }
+    body.innerHTML = "";
+    if (cur === "usr") usersPanel(body, user);
+    else body.append(h("div", { class: "empty" }, (cur === "req" ? "Заявки" : "Слежение") + ": модуль будет подключён на следующем шаге."));
+  };
+  show(
+    h("header", {}, h("b", {}, "Логистика"), h("span", {}, prof.name || user.email), h("button", { class: "sm ghost", onclick: () => auth.signOut() }, "Выйти")),
+    nav, body);
+  draw();
+}
+
+function usersPanel(box, me) {
+  box.append(h("div", { class: "empty" }, "Загрузка…"));
+  unsubUsers = db.collection("users").onSnapshot(s => {
+    box.innerHTML = "";
+    const list = s.docs.map(d => Object.assign({ uid: d.id }, d.data()));
+    list.sort((a, b) => (a.approved === b.approved ? 0 : a.approved ? 1 : -1) || String(a.name).localeCompare(String(b.name), "ru"));
+    if (!list.length) box.append(h("div", { class: "empty" }, "Пользователей нет"));
+    list.forEach(u => {
+      const self = u.uid === me.uid;
+      box.append(h("div", { class: "row" },
+        h("div", { class: "grow" },
+          h("div", { class: "n" }, (u.name || "—") + (u.admin ? " · админ" : "")),
+          h("div", { class: "m" }, u.email || "")),
+        h("span", { class: "badge" + (u.approved ? " g" : "") }, u.approved ? "Доступ есть" : "Ждёт"),
+        self || u.admin ? null :
+          h("button", { class: "sm" + (u.approved ? " red" : ""), onclick: () =>
+            db.collection("users").doc(u.uid).update({ approved: !u.approved }).catch(e => alert(errText(e))) },
+            u.approved ? "Закрыть" : "Одобрить")));
+    });
+  }, e => { box.innerHTML = ""; box.append(h("div", { class: "err" }, "Нет доступа к списку: " + (e.code || e.message))); });
+}
+
+/* ---------- маршрутизация ---------- */
+async function route(user) {
+  if (unsubProfile) { unsubProfile(); unsubProfile = null; }
+  if (unsubUsers) { unsubUsers(); unsubUsers = null; }
+  if (!user) { loginScreen("login"); return; }
+  if (!user.emailVerified) { verifyScreen(user); return; }
+  const ref = db.collection("users").doc(user.uid);
+  try {
+    const snap = await ref.get();
+    if (!snap.exists) {
+      const nm = (localStorage.getItem("pendingName") || "").trim() || (user.email || "").split("@")[0];
+      await ref.set({ name: nm.substring(0, 80), email: user.email, approved: false, admin: false, createdAt: Date.now() });
+    }
+  } catch (e) {
+    show(h("div", { class: "card" }, h("h1", {}, "Не удалось войти"), h("div", { class: "err" }, errText(e)),
+      h("button", { class: "full ghost", onclick: () => auth.signOut() }, "Выйти")));
+    return;
+  }
+  unsubProfile = ref.onSnapshot(s => {
+    const p = s.data();
+    if (!p) return;
+    if (p.approved === true) mainScreen(user, p); else pendingScreen(user);
+  }, e => show(h("div", { class: "card" }, h("h1", {}, "Нет доступа"), h("div", { class: "err" }, errText(e)),
+    h("button", { class: "full ghost", onclick: () => auth.signOut() }, "Выйти"))));
+}
+
+auth.onAuthStateChanged(route);
+</script>
+</body>
+</html>
